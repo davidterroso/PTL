@@ -14,9 +14,12 @@ from nutsml import *
 from nutsflow import *
 
 if platform.system() == 'Linux':
-    DATA_ROOT = '/home/truwan/DATA/retouch/'
+    # DATA_ROOT = '/home/truwan/DATA/retouch/'
+    print("Not ready for Linux")
 else:
-    DATA_ROOT = '/Users/ruwant/DATA/retouch/'
+    # DATA_ROOT = '/Users/ruwant/DATA/retouch/'
+    DATA_ROOT = '..\RETOUCHdata\\'
+
 
 IRF_CODE = 1
 SRF_CODE = 2
@@ -27,7 +30,7 @@ CHULL = False
 
 def preprocess_oct_images():
     # Prepare reference image for histogram matching (randomly selected from Spectralis dataset)
-    filepath_r = '/home/truwan/DATA/retouch/Spectralis/7501081e3e7577af524c6f7703d8d538/oct.mhd'
+    filepath_r = '..\RETOUCHdata\Spectralis\TRAIN040\oct.mhd'
     oct_r, _, _ = mhd.load_oct_image(filepath_r)
 
     image_names = list()
@@ -36,8 +39,8 @@ def preprocess_oct_images():
             filepath = subdir + os.sep + file
 
             if filepath.endswith("reference.mhd"):
-                image_name = filepath.split('/')[-2]
-                vendor = filepath.split('/')[-3]
+                image_name = filepath.split('\\')[-2]
+                vendor = filepath.split('\\')[-3]
                 img, _, _ = mhd.load_oct_seg(filepath)
                 num_slices = img.shape[0]
                 for slice_num in range(0, num_slices):
@@ -51,8 +54,8 @@ def preprocess_oct_images():
                     im_slice.save(save_name)
 
             elif filepath.endswith("oct.mhd"):
-                image_name = filepath.split('/')[-2]
-                vendor = filepath.split('/')[-3]
+                image_name = filepath.split('\\')[-2]
+                vendor = filepath.split('\\')[-3]
                 img, _, _ = mhd.load_oct_image(filepath)
                 if 'Cirrus' in vendor:
                     img = hist_match(img, oct_r)
@@ -74,9 +77,9 @@ def preprocess_oct_images():
                         im_slice = im_slice.filter(ImageFilter.MedianFilter(size=3))
                     elif 'Topcon' in vendor:
                         im_slice = im_slice.filter(ImageFilter.MedianFilter(size=3))
-                    save_name = DATA_ROOT + 'pre_processed/oct_imgs/' + vendor + '_' + image_name + '_' + str(
+                        save_name = DATA_ROOT + 'pre_processed/oct_imgs/' + vendor + '_' + image_name + '_' + str(
                         slice_num).zfill(3) + '.tiff'
-                    im_slice.save(save_name)
+                    im_slice.save(save_name)                    
 
     col_names = ['image_name', 'vendor', 'root', 'slice', 'is_IRF', 'is_SRF', 'is_PED']
     df = pd.DataFrame(image_names, columns=col_names)
@@ -85,9 +88,9 @@ def preprocess_oct_images():
 
 def create_test_train_set():
 
-    print 'generating new test train SPLIT'
+    print ('generating new test train SPLIT')
     # reading training data
-    train_file = DATA_ROOT + '/pre_processed/slice_gt.csv'
+    train_file = DATA_ROOT + 'pre_processed/slice_gt.csv'
     data = ReadPandas(train_file, dropnan=True)
     data = data >> Shuffle(7000) >> Collect()
 
@@ -100,8 +103,8 @@ def create_test_train_set():
 
     train_cases, test_cases = case_names >> Shuffle(70) >> SplitRandom(ratio=0.75)
 
-    print train_cases >> GetCols(1) >> CountValues()
-    print test_cases >> GetCols(1) >> CountValues()
+    print (train_cases >> GetCols(1) >> CountValues())
+    print (test_cases >> GetCols(1) >> CountValues())
 
     train_cases = train_cases >> GetCols(0) >> Collect()
     test_cases = test_cases >> GetCols(0) >> Collect()
@@ -114,9 +117,9 @@ def create_test_train_set():
     data >> FilterFalse(is_in_train) >> writer
 
     case_names = data >> Filter(is_in_train) >> GetCols(0, 1) >> Collect(set)
-    print case_names >> GetCols(1) >> CountValues()
+    print (case_names >> GetCols(1) >> CountValues())
     case_names = data >> FilterFalse(is_in_train) >> GetCols(0, 1) >> Collect(set)
-    print case_names >> GetCols(1) >> CountValues()
+    print (case_names >> GetCols(1) >> CountValues())
 
 
 def create_roi_masks(tresh=1e-2):
@@ -125,14 +128,14 @@ def create_roi_masks(tresh=1e-2):
     from skimage.morphology import disk, rectangle, closing, opening, binary_closing, convex_hull_image
     from skimage.filters.rank import entropy
 
-    MASK_PATH = '/home/truwan/DATA/retouch/pre_processed/oct_masks/'
+    MASK_PATH = '..\RETOUCHdata\pre_processed\oct_masks\\'
 
     image_names = list()
     for subdir, dirs, files in os.walk(DATA_ROOT + 'pre_processed/oct_imgs/'):
         for file in files:
             filepath = subdir + os.sep + file
             if filepath.endswith(".tiff"):
-                image_name = filepath.split('/')[-1]
+                image_name = filepath.split('\\')[-1]
                 image_names.append([filepath, image_name])
 
     for filepath, image_name in image_names:
@@ -147,7 +150,7 @@ def create_roi_masks(tresh=1e-2):
         im_slice_ = np.asarray(im_slice_ > tresh, dtype=np.int8)
         im_slice_ = np.bitwise_or(im_slice_,im_mask)
         selem = disk(55)
-        im_slice_ = binary_closing(im_slice_, selem=selem)
+        im_slice_ = binary_closing(im_slice_, footprint=selem)
 
         h, w = im_slice_.shape
         rnge = list()
@@ -161,9 +164,9 @@ def create_roi_masks(tresh=1e-2):
                 rnge.append(int((float(y_max) - y_min)/h*100.))
                 im_slice_[y_min:y_max, x] = 1
         if len(rnge) > 0:
-            print image_name, np.max(rnge)
+            print (image_name, np.max(rnge))
         else:
-            print image_name, "**************"
+            print (image_name, "**************")
 
         if CHULL:
             im_slice_ = convex_hull_image(im_slice_)
@@ -178,6 +181,7 @@ def create_roi_masks(tresh=1e-2):
 
 
 if __name__ == "__main__":
-    # create_roi_masks()
-    create_test_train_set()
+    # preprocess_oct_images()
+    create_roi_masks()
+    # create_test_train_set()
 

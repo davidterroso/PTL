@@ -1,5 +1,6 @@
-from keras import backend as K
-from keras.engine import Layer, InputSpec
+# from keras import backend as K
+from keras.layers import Layer
+from tensorflow.python.keras import backend as K
 
 
 class Softmax4D(Layer):

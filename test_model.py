@@ -9,57 +9,18 @@ from custom_networks import retouch_dual_net
 import os
 from hyper_parameters import *
 import matplotlib.pyplot as plt
+from PIL import Image
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 if platform.system() == 'Linux':
-    DATA_ROOT = '/home/truwan/DATA/retouch/pre_processed/'
+    print("Not ready for Linux")
 else:
-    DATA_ROOT = '/Users/ruwant/DATA/retouch/pre_processed/'
+    DATA_ROOT = '../RETOUCHdata/pre_processed/'
 
 weight_file = './outputs/weights.h5'
-weight_file_ = '/home/truwan/projects/retouch-adversarial/outputs/weights.h5'
-
-
-# def visualize_images():
-#     train_file = DATA_ROOT + 'slice_gt.csv'
-#     data = ReadPandas(train_file, dropnan=True)
-#     data = data >> Shuffle(7000) >> Collect()
-#
-#     is_topcon = lambda v: v[1] == 'Topcon'
-#
-#     def rearange_cols(sample):
-#         """
-#         Re-arrange the incoming data stream to desired outputs
-#         :param sample:
-#         :return:
-#         """
-#         img = sample[1] + '_' + sample[0] + '_' + str(sample[3]).zfill(3) + '.tiff'
-#         mask = sample[1] + '_' + sample[0] + '_' + str(sample[3]).zfill(3) + '.tiff'
-#         IRF_label = sample[4]
-#         SRF_label = sample[5]
-#         PED_label = sample[6]
-#
-#         return (img, mask, IRF_label, SRF_label, PED_label)
-#
-#     # setting up image ad mask readers
-#     imagepath = DATA_ROOT + 'oct_imgs/*'
-#     maskpath = DATA_ROOT + 'oct_masks/*'
-#     img_reader = ReadOCT(0, imagepath)
-#     mask_reader = ReadImage(1, maskpath)
-#
-#     viewer = ViewImage(imgcols=(0, 1), layout=(1, 2), pause=.1)
-#     slice_oct = lambda x: x[:, :, 1]
-#
-#     # randomly sample image patches from the interesting region (based on entropy)
-#     image_patcher = ImagePatchesByMaskRetouch(imagecol=0, maskcol=1, IRFcol=2, SRFcol=3, PEDcol=4,
-#                                               pshape=(PATCH_SIZE, PATCH_SIZE),
-#                                               npos=20, nneg=2, pos=1)
-#
-#     data >> NOP(Filter(is_topcon)) >> Map(
-#         rearange_cols) >> img_reader >> mask_reader >> MapCol(0, slice_oct) >> image_patcher >> Consume()
-
+SAVE_ROOT = './results/'
 
 def test_model():
     train_file = './outputs/train_data_.csv'
@@ -84,13 +45,14 @@ def test_model():
         SRF_label = sample[5]
         PED_label = sample[6]
         roi_m = sample[1] + '_' + sample[0] + '_' + str(sample[3]).zfill(3) + '.tiff'
+        path = sample[1] + '_' + sample[0] + '_' + str(sample[3]).zfill(3) + '.tiff'
 
-        return (img, mask, IRF_label, SRF_label, PED_label, roi_m)
+        return (img, mask, IRF_label, SRF_label, PED_label, roi_m, path)
 
     # setting up image ad mask readers
     imagepath = DATA_ROOT + 'oct_imgs/*'
     maskpath = DATA_ROOT + 'oct_masks/*'
-    roipath = DATA_ROOT + 'roi_masks/*'
+    roipath = DATA_ROOT + 'roi_masks_chull/*'
 
     img_reader = ReadOCT(0, imagepath)
     mask_reader = ReadImage(1, maskpath)
@@ -102,16 +64,16 @@ def test_model():
                                                   pshape=(PATCH_SIZE_H, 512),
                                                   npos=7, nneg=2, pos=1, use_entropy=True, patch_border=42)
 
-    res_viewer = ViewImage(imgcols=(0, 1, 2), layout=(1, 3), pause=1)
+    # res_viewer = ViewImage(imgcols=(0, 1, 2), layout=(1, 3), pause=1)
 
     # building image batches
     build_batch_test = (BuildBatch(TEST_BATCH_SIZE, prefetch=0)
-                        .by(0, 'image', 'float32', channelfirst=False)
-                        .by(1, 'one_hot', 'uint8', 4)
-                        .by(2, 'one_hot', 'uint8', 2)
-                        .by(3, 'one_hot', 'uint8', 2)
-                        .by(4, 'one_hot', 'uint8', 2)
-                        .by(5, 'one_hot', 'uint8', 4))
+                        .input(0, 'image', 'float32', channelfirst=False)
+                        .input(1, 'one_hot', 'uint8', 4)
+                        .input(2, 'one_hot', 'uint8', 2)
+                        .input(3, 'one_hot', 'uint8', 2)
+                        .input(4, 'one_hot', 'uint8', 2)
+                        .input(5, 'one_hot', 'uint8', 4))
 
     is_cirrus = lambda v: v[1] == 'Cirrus'
     is_topcon = lambda v: v[1] == 'Topcon'
@@ -137,16 +99,13 @@ def test_model():
     # define the model
     # model = retouch_vgg_net(input_shape=(224, 224, 3))
     model = retouch_unet(input_shape=(PATCH_SIZE_H, 512, 3))
-    model_ = retouch_unet(input_shape=(PATCH_SIZE_H, 512, 3))
 
     assert os.path.isfile(weight_file)
     model.load_weights(weight_file)
-    model_.load_weights(weight_file_)
 
     def predict_batch(sample):
         outp = model.predict(sample[0])
-        outp_ = model_.predict(sample[0])
-        return (sample[0], sample[1], outp, outp_)
+        return (sample[0], sample[1], outp)
 
     filter_batch_shape = lambda s: s[0].shape[0] == TEST_BATCH_SIZE
 
@@ -159,9 +118,13 @@ def test_model():
     mask_pad = lambda s: np.pad(s, pad_width=46, mode='constant', constant_values=0.)
     mask_edge = lambda s: s[46:-46, 46:-46]
 
-    print 'Starting network Testing'
+    print ('Starting network Testing')
 
     def plot_image(sample):
+        global path
+        save_filename = SAVE_ROOT + path
+
+        '''
         plt.subplot(2, 2, 1)
         plt.imshow(sample[0][:, :, 1].astype(np.uint8), cmap='gray')
         plt.imshow(sample[2], vmin=0, vmax=3, alpha=0.5)
@@ -172,21 +135,29 @@ def test_model():
         plt.subplot(2, 2, 3)
         plt.imshow(sample[2], vmin=0, vmax=3)
         plt.title('Predicted mask')
-        plt.subplot(2, 2, 4)
-        plt.imshow(sample[3], vmin=0, vmax=3)
-        plt.title('Predicted mask 2')
-        plt.pause(.5)
 
+        plt.savefig(save_filename)
+
+        plt.pause(.5)
+        '''
+
+        img_array = sample[2].astype(np.int8)
+        result = Image.fromarray(img_array)
+        result.save(save_filename)
+        
         return 0
 
-    val_data >> Shuffle(5000) >> Map(
-        rearange_cols) >> img_reader >> mask_reader >> roi_reader >> image_patcher >> MapCol(0, remove_mean) >> NOP(
-        FilterFalse(drop_patch)) >> build_batch_test >> Filter(filter_batch_shape) >> Map(predict_batch) >> MapCol(0,
-                                                                                                                   add_mean) >> MapCol(
-        1, extract_label) >> MapCol(1, mask_edge) >> MapCol(1, mask_pad) >> MapCol(2, extract_label) >> MapCol(2,
-                                                                                                               mask_pad) >> MapCol(
-        3, extract_label) >> MapCol(3, mask_pad) >> NOP(PrintColType()) >> Map(plot_image) >> Consume()
+    def save_path(s):
+        global path
+        path = s
 
+
+    val_data >> Shuffle(5000) >> Map(
+        rearange_cols) >> img_reader >> mask_reader >> roi_reader >> image_patcher >> MapCol(0,
+        remove_mean) >> MapCol(6, save_path) >> build_batch_test >> Filter(filter_batch_shape) >> Map(predict_batch) >> MapCol(0,
+        add_mean) >> MapCol(1, extract_label) >> MapCol(1, mask_edge) >> MapCol(1, mask_pad) >> MapCol(2,
+        extract_label) >> MapCol(2, mask_pad) >> Map(plot_image) >> Consume()
+    
 
 if __name__ == "__main__":
     test_model()

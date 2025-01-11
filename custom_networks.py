@@ -1,4 +1,4 @@
-import keras.backend as KB
+import tensorflow.python.keras.backend as KB
 import tensorflow as tf
 from hyper_parameters import *
 
@@ -28,13 +28,15 @@ def multiclass_balanced_cross_entropy_loss(y_true, y_pred):
 def multiclass_balanced_cross_entropy_loss_unet(y_true, y_pred):
     # shape = KB.int_shape(y_pred)
     CROP_SHAPE = KB.int_shape(y_pred)
-    print CROP_SHAPE
+    print(CROP_SHAPE)
     batch_size = BATCH_SIZE
     num_classes = 4
 
-    y_true = tf.image.resize_image_with_crop_or_pad(y_true, target_height=CROP_SHAPE[1], target_width=CROP_SHAPE[2])
+    y_true = tf.image.resize_with_crop_or_pad(y_true, target_height=CROP_SHAPE[1], target_width=CROP_SHAPE[2])
+    y_true = tf.cast(y_true, tf.float32)
 
     y_pred_ = KB.clip(y_pred, KB.epsilon(), 1. - KB.epsilon())
+
 
     # Calculate balanced cross-entropy loss
     cross_ent = (KB.log(y_pred_) * y_true)
@@ -55,9 +57,9 @@ def multiclass_balanced_cross_entropy_loss_unet(y_true, y_pred):
     true_pos = KB.sum((1. - p_0) * (1. - g_0), keepdims=False)
     false_pos = KB.sum((1. - p_0) * g_0, keepdims=False)
     false_neg = KB.sum(p_0 * (1. - g_0), keepdims=False)
-    dice_loss = (2. * true_pos) / (2. * true_pos + false_pos + false_neg + KB.epsilon())
+    dice_loss = 1. - ((2. * true_pos) / (2. * true_pos + false_pos + false_neg + KB.epsilon()))
 
-    return - 0.5 * (KB.mean(cross_ent, axis=-1, keepdims=False) + dice_loss)
+    return - 0.5 * (KB.mean(cross_ent, axis=-1, keepdims=False)) + 0.5 * dice_loss
 
 
 def binary_prob(x):
@@ -80,17 +82,12 @@ def retouch_dual_net(input_shape=(64, 512, 512, 1)):
     :return:
     """
 
-    from keras.models import Sequential
-    from keras.layers import Conv2D, SpatialDropout2D, GlobalAveragePooling2D, Input, Dense, UpSampling2D, \
-        AveragePooling2D, GlobalMaxPooling2D, Lambda
-    from keras.layers.advanced_activations import LeakyReLU
-    from keras.layers.normalization import BatchNormalization
-    from keras.layers.merge import concatenate
-    from keras.layers import Activation
+    from keras.layers import Conv2D, SpatialDropout2D, Input, UpSampling2D, \
+        AveragePooling2D, GlobalMaxPooling2D, Lambda, LeakyReLU, BatchNormalization, concatenate
     from keras.models import Model
     from keras.utils import plot_model
     from custom_layers import Softmax4D
-    from keras.optimizers import SGD, Adam
+    from keras.optimizers import SGD
 
     in_img = Input(shape=input_shape)
 
@@ -174,10 +171,10 @@ def retouch_dual_net(input_shape=(64, 512, 512, 1)):
 
     model = Model(inputs=in_img, outputs=[sm_IRF, sm_SRF, sm_PED, seg_out])
 
-    print model.summary()
+    print (model.summary())
     plot_model(model, to_file='model.png', show_shapes=True, show_layer_names=True)
 
-    sgd = SGD(lr=0.001, momentum=0.5, decay=1e-6, nesterov=False)
+    sgd = SGD(learning_rate=0.001, momentum=0.5, decay=1e-6, nesterov=False)
     model.compile(optimizer=sgd, loss={'sm_IRF': 'categorical_crossentropy', 'sm_SRF': 'categorical_crossentropy',
                                        'sm_PED': 'categorical_crossentropy',
                                        'seg_out': multiclass_balanced_cross_entropy_loss})
@@ -186,18 +183,12 @@ def retouch_dual_net(input_shape=(64, 512, 512, 1)):
 
 
 def retouch_vgg_net(input_shape=(224, 224, 3)):
-    from keras.models import Sequential
-    from keras.layers import Conv2D, SpatialDropout2D, GlobalAveragePooling2D, Input, Dense, UpSampling2D, \
-        AveragePooling2D, GlobalMaxPooling2D, Lambda, MaxPooling2D, Flatten
-    from keras.layers.advanced_activations import LeakyReLU
-    from keras.layers.normalization import BatchNormalization
-    from keras.layers.merge import concatenate
-    from keras.layers import Activation
+    from keras.layers import Conv2D, SpatialDropout2D, UpSampling2D, \
+        AveragePooling2D, GlobalMaxPooling2D, Lambda, MaxPooling2D, concatenate
     from keras.models import Model
-    from keras.utils import plot_model
     from custom_layers import Softmax4D
-    from keras.optimizers import SGD, Adam
-    from keras import backend as K
+    from keras.optimizers import SGD
+    from keras import Input
     from keras.applications.vgg16 import VGG16
 
     img_input = Input(shape=input_shape)
@@ -272,7 +263,7 @@ def retouch_vgg_net(input_shape=(224, 224, 3)):
 
     model.summary()
 
-    sgd = SGD(lr=0.001, momentum=0.5, decay=1e-6, nesterov=False)
+    sgd = SGD(learning_rate=0.001, momentum=0.5, decay=1e-6, nesterov=False)
     model.compile(optimizer=sgd, loss={'sm_IRF': 'categorical_crossentropy', 'sm_SRF': 'categorical_crossentropy',
                                        'sm_PED': 'categorical_crossentropy',
                                        'seg_out': multiclass_balanced_cross_entropy_loss})
@@ -281,22 +272,16 @@ def retouch_vgg_net(input_shape=(224, 224, 3)):
 
 
 def retouch_unet(input_shape=(224, 224, 3), regularize_weight=0.0001):
-    from keras.models import Sequential
-    from keras.layers import Conv2D, SpatialDropout2D, GlobalAveragePooling2D, Input, Dense, UpSampling2D, \
-        AveragePooling2D, GlobalMaxPooling2D, Lambda, MaxPooling2D, Flatten, Deconv2D
-    from keras.layers.advanced_activations import LeakyReLU
-    from keras.layers.normalization import BatchNormalization
-    from keras.layers.merge import concatenate
-    from keras.layers import Activation
+    from keras.layers import Conv2D, SpatialDropout2D, GlobalAveragePooling2D, UpSampling2D, \
+         GlobalMaxPooling2D, MaxPooling2D, Conv2DTranspose, Activation, Cropping2D, BatchNormalization, concatenate
     from keras.models import Model
     from keras.utils import plot_model
     from custom_layers import Softmax4D
     from keras.optimizers import SGD, Adam
     from keras import backend as K
-    from keras.layers import Cropping2D
     from keras.regularizers import l2
-    from keras.activations import softmax
-
+    from keras import Input
+    
     in_image = Input(shape=input_shape)
 
     conv1_0 = Conv2D(64, (7, 7), activation='relu', name='conv1_0', padding='same', data_format='channels_last',
@@ -333,7 +318,7 @@ def retouch_unet(input_shape=(224, 224, 3), regularize_weight=0.0001):
     conv4_2 = BatchNormalization(axis=-1, name='bn4')(conv4_2)
     conv4_2 = Activation('relu')(conv4_2)
 
-    upool3 = Deconv2D(256, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool3')(
+    upool3 = Conv2DTranspose(256, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool3')(
         conv4_2)
     upool3 = SpatialDropout2D(0.25, data_format='channels_last')(upool3)
     crop3 = Cropping2D(cropping=((5, 4), (5, 4)), data_format='channels_last')(conv3_2)
@@ -346,7 +331,7 @@ def retouch_unet(input_shape=(224, 224, 3), regularize_weight=0.0001):
     dconv3_2 = BatchNormalization(axis=-1, name='bn3d')(dconv3_2)
     dconv3_2 = Activation('relu')(dconv3_2)
 
-    upool2 = Deconv2D(128, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool2')(
+    upool2 = Conv2DTranspose(128, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool2')(
         dconv3_2)
     upool2 = SpatialDropout2D(0.25, data_format='channels_last')(upool2)
     crop2 = Cropping2D(cropping=((17, 17), (17, 17)), data_format='channels_last')(conv2_2)
@@ -359,7 +344,7 @@ def retouch_unet(input_shape=(224, 224, 3), regularize_weight=0.0001):
     dconv2_2 = BatchNormalization(axis=-1, name='bn2d')(dconv2_2)
     dconv2_2 = Activation('relu')(dconv2_2)
 
-    upool1 = Deconv2D(64, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool1')(
+    upool1 = Conv2DTranspose(64, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool1')(
         dconv2_2)
     upool1 = SpatialDropout2D(0.5, data_format='channels_last')(upool1)
     crop1 = Cropping2D(cropping=((42, 42), (42, 42)), data_format='channels_last')(conv1_2)
@@ -388,24 +373,24 @@ def retouch_unet(input_shape=(224, 224, 3), regularize_weight=0.0001):
     if not TRAIN_CLASSES:
         model = Model(inputs=in_image, outputs=seg_out)
         # sgd = SGD(lr=0.001, momentum=0.9, decay=1e-8, nesterov=False, clipvalue=1.)
-        model.compile(optimizer=Adam(lr=ADAM_LR, beta_1=ADAM_BETA_1), loss=multiclass_balanced_cross_entropy_loss_unet)
+        model.compile(optimizer=Adam(learning_rate=ADAM_LR, beta_1=ADAM_BETA_1), loss=multiclass_balanced_cross_entropy_loss_unet)
     else:
         # label out IRF, SRF, PED
-        c_out_IRF = Conv2D(1, (3, 3), activation='sigmoid', name='c_out_', data_format='channels_last',
+        c_out_IRF = Conv2D(1, (3, 3), activation='sigmoid', name='c_IRF', data_format='channels_last',
                            kernel_regularizer=l2(regularize_weight))(conv4_2)
-        c_out_IRF = GlobalMaxPooling2D(data_format='channels_last', name='gpool')(c_out_IRF)
+        c_out_IRF = GlobalMaxPooling2D(data_format='channels_last', name='c_out_IRF')(c_out_IRF)
 
-        c_out_SRF = Conv2D(2, (3, 3), activation='sigmoid', name='c_out_', data_format='channels_last',
+        c_out_SRF = Conv2D(2, (3, 3), activation='sigmoid', name='c_SRF', data_format='channels_last',
                            kernel_regularizer=l2(regularize_weight))(conv4_2)
-        c_out_SRF = GlobalAveragePooling2D(data_format='channels_last', name='gpool')(c_out_SRF)
+        c_out_SRF = GlobalAveragePooling2D(data_format='channels_last', name='c_out_SRF')(c_out_SRF)
 
-        c_out_PED = Conv2D(2, (3, 3), activation='sigmoid', name='c_out_', data_format='channels_last',
+        c_out_PED = Conv2D(2, (3, 3), activation='sigmoid', name='c_PED', data_format='channels_last',
                            kernel_regularizer=l2(regularize_weight))(conv4_2)
-        c_out_PED = GlobalAveragePooling2D(data_format='channels_last', name='gpool')(c_out_PED)
+        c_out_PED = GlobalAveragePooling2D(data_format='channels_last', name='c_out_PED')(c_out_PED)
 
         model = Model(inputs=in_image, outputs=[seg_out, c_out_IRF, c_out_SRF, c_out_PED])
-        # sgd = SGD(lr=0.001, momentum=0.9, decay=1e-8, nesterov=False, clipvalue=1.)
-        model.compile(optimizer=Adam(lr=ADAM_LR, beta_1=ADAM_BETA_1),
+        # sgd = SGD(learning_rate=0.001, momentum=0.9, decay=1e-8, nesterov=False, clipvalue=1.)
+        model.compile(optimizer=Adam(learning_rate=ADAM_LR, beta_1=ADAM_BETA_1),
                       loss=[multiclass_balanced_cross_entropy_loss_unet, 'binary_crossentropy', 'binary_crossentropy',
                             'binary_crossentropy'])
 
@@ -414,14 +399,80 @@ def retouch_unet(input_shape=(224, 224, 3), regularize_weight=0.0001):
 
     return model
 
+def retouch_discriminator(input_shape=(224, 224, 3), regularize_weight=0.0001):
+    from keras.layers import Conv2D, GlobalAveragePooling2D, Dense, MaxPooling2D, BatchNormalization, \
+        concatenate, Activation
+    from keras.models import Model
+    from keras.utils import plot_model
+    from keras.regularizers import l2
+    from keras import Input
+
+    in_image = Input(shape=input_shape)
+    in_mask = Input(shape=(input_shape[0], input_shape[1], NB_CLASSES))
+
+    conv1_0_im = Conv2D(64, (7, 7), activation='relu', name='conv1_0_', padding='same', data_format='channels_last',
+                        kernel_regularizer=l2(regularize_weight))(in_image)
+    conv1_1_im = Conv2D(64, (3, 3), activation='relu', name='conv1_1_', data_format='channels_last',
+                        kernel_regularizer=l2(regularize_weight))(conv1_0_im)
+    conv1_2_im = Conv2D(64, (3, 3), name='conv1_2_', data_format='channels_last',
+                        kernel_regularizer=l2(regularize_weight))(conv1_1_im)
+    conv1_2_im = BatchNormalization(axis=-1, name='bn1_')(conv1_2_im)
+    conv1_2_im = Activation('relu')(conv1_2_im)
+
+    conv1_0_mask = Conv2D(64, (7, 7), activation='relu', name='conv1_0_m', padding='same', data_format='channels_last',
+                          kernel_regularizer=l2(regularize_weight))(in_mask)
+    conv1_1_mask = Conv2D(64, (3, 3), activation='relu', name='conv1_1_m', data_format='channels_last',
+                          kernel_regularizer=l2(regularize_weight))(conv1_0_mask)
+    conv1_2_mask = Conv2D(64, (3, 3), name='conv1_2_m', data_format='channels_last',
+                          kernel_regularizer=l2(regularize_weight))(conv1_1_mask)
+    conv1_2_mask = BatchNormalization(axis=-1, name='bn1_m')(conv1_2_mask)
+    conv1_2_mask = Activation('relu')(conv1_2_mask)
+
+    conv1_2 = concatenate([conv1_2_im, conv1_2_mask], axis=-1, name='merge_in')
+
+    pool1 = MaxPooling2D(pool_size=(2, 2), name='pool1', data_format='channels_last')(conv1_2)
+    conv2_1 = Conv2D(128, (3, 3), activation='relu', name='conv2_1', data_format='channels_last',
+                     kernel_regularizer=l2(regularize_weight))(pool1)
+    conv2_2 = Conv2D(128, (3, 3), name='conv2_2', data_format='channels_last',
+                     kernel_regularizer=l2(regularize_weight))(conv2_1)
+    conv2_2 = BatchNormalization(axis=-1, name='bn2')(conv2_2)
+    conv2_2 = Activation('relu')(conv2_2)
+
+    pool2 = MaxPooling2D(pool_size=(2, 1), name='pool2', data_format='channels_last')(conv2_2)
+    conv3_1 = Conv2D(256, (3, 3), activation='relu', name='conv3_1', data_format='channels_last',
+                     kernel_regularizer=l2(regularize_weight))(pool2)
+    conv3_2 = Conv2D(256, (3, 3), name='conv3_2', data_format='channels_last',
+                     kernel_regularizer=l2(regularize_weight))(conv3_1)
+    conv3_2 = BatchNormalization(axis=-1, name='bn3')(conv3_2)
+    conv3_2 = Activation('relu')(conv3_2)
+
+    pool3 = MaxPooling2D(pool_size=(2, 1), name='pool3', data_format='channels_last')(conv3_2)
+    conv4_1 = Conv2D(512, (3, 3), activation='relu', name='conv4_1', data_format='channels_last',
+                     kernel_regularizer=l2(regularize_weight))(pool3)
+    conv4_2 = Conv2D(512, (3, 3), name='conv4_2', data_format='channels_last',
+                     kernel_regularizer=l2(regularize_weight))(conv4_1)
+    conv4_2 = BatchNormalization(axis=-1, name='bn4')(conv4_2)
+    conv4_2 = Activation('relu')(conv4_2)
+
+    apool = GlobalAveragePooling2D(data_format='channels_last')(conv4_2)
+    disc_out = Dense(2, activation='softmax', name='disc_out', kernel_regularizer=l2(regularize_weight))(apool)
+
+    model = Model(inputs=[in_image, in_mask], outputs=disc_out)
+    # sgd = SGD(lr=0.01, momentum=0.9, decay=1e-8, nesterov=False, clipvalue=1.)
+    # model.compile(optimizer=sgd, loss=multiclass_balanced_cross_entropy_loss_unet)
+
+    model.summary()
+    # plot_model(model, to_file='./outputs/model_unet.png', show_shapes=True)
+
+    return model
 
 def retouch_unet_no_drop(input_shape=(224, 224, 3)):
     from keras.models import Sequential
     from keras.layers import Conv2D, SpatialDropout2D, GlobalAveragePooling2D, Input, Dense, UpSampling2D, \
-        AveragePooling2D, GlobalMaxPooling2D, Lambda, MaxPooling2D, Flatten, Deconv2D
-    from keras.layers.advanced_activations import LeakyReLU
-    from keras.layers.normalization import BatchNormalization
-    from keras.layers.merge import concatenate
+        AveragePooling2D, GlobalMaxPooling2D, Lambda, MaxPooling2D, Flatten, Conv2DTranspose
+    from tensorflow.python.keras.layers.advanced_activations import LeakyReLU
+    from tensorflow.python.keras.layers import BatchNormalization
+    from tensorflow.python.keras.layers.merge import concatenate
     from keras.layers import Activation
     from keras.models import Model
     from keras.utils import plot_model
@@ -457,7 +508,7 @@ def retouch_unet_no_drop(input_shape=(224, 224, 3)):
     conv4_2 = BatchNormalization(axis=-1, name='bn4')(conv4_2)
     conv4_2 = Activation('relu')(conv4_2)
 
-    upool3 = Deconv2D(256, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool3')(
+    upool3 = Conv2DTranspose(256, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool3')(
         conv4_2)
     # upool3 = SpatialDropout2D(0.25, data_format='channels_last')(upool3)
     crop3 = Cropping2D(cropping=((5, 4), (5, 4)), data_format='channels_last')(conv3_2)
@@ -468,7 +519,7 @@ def retouch_unet_no_drop(input_shape=(224, 224, 3)):
     dconv3_2 = BatchNormalization(axis=-1, name='bn3d')(dconv3_2)
     dconv3_2 = Activation('relu')(dconv3_2)
 
-    upool2 = Deconv2D(128, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool2')(
+    upool2 = Conv2DTranspose(128, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool2')(
         dconv3_2)
     # upool2 = SpatialDropout2D(0.5, data_format='channels_last')(upool2)
     crop2 = Cropping2D(cropping=((17, 17), (17, 17)), data_format='channels_last')(conv2_2)
@@ -480,7 +531,7 @@ def retouch_unet_no_drop(input_shape=(224, 224, 3)):
     dconv2_2 = Activation('relu')(dconv2_2)
     # dconv2_2 = SpatialDropout2D(0.5, data_format='channels_last')(dconv2_2)
 
-    upool1 = Deconv2D(64, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool1')(
+    upool1 = Conv2DTranspose(64, kernel_size=2, strides=2, padding='same', data_format='channels_last', name='upool1')(
         dconv2_2)
     # upool1 = SpatialDropout2D(0.5, data_format='channels_last')(upool1)
     crop1 = Cropping2D(cropping=((42, 42), (42, 42)), data_format='channels_last')(conv1_2)

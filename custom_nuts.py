@@ -6,7 +6,8 @@ import nutsml.imageutil as ni
 from skimage.morphology import disk, rectangle, closing, opening, binary_closing, convex_hull_image
 from skimage.filters.rank import entropy
 import matplotlib.pyplot as plt
-from nutsflow import Nut, NutFunction, nut_processor, as_tuple, as_set, nut_function
+from nutsflow import Nut, NutFunction, nut_processor, nut_function
+from nutsflow.common import as_set
 import skimage
 import skimage.transform
 from skimage.color import rgb2gray
@@ -109,7 +110,7 @@ def sample_oct_patch_centers(roimask, pshape, npos, pos=1, neg=0):
     PXINX = 1
     h, w = roimask.shape
 
-    x = range(pshape[PXINX] / 2, w - pshape[PXINX] / 2, 10)
+    x = range(int(pshape[PXINX] / 2), w - int(pshape[PXINX] / 2), 10)
     x_samples = np.random.choice(x, npos * 2, replace=False)
     np.random.shuffle(x_samples)
     c_hold = list()
@@ -389,21 +390,21 @@ def ImagePatchesForTest_resampled(iterable, imagecol, maskcol, IRFcol, SRFcol, P
             # print nx_y
             if len(nx_y) > 0:
                 miny, maxy = float(np.min(nx_y)), float(np.max(nx_y))
-                print miny, maxy
+                print (miny, maxy)
                 y = int(miny + (maxy-miny)/2.)
                 if not y > int(float(npshape[0])/2.):
                     y = int(float(npshape[0])/2.)
             else:
                 y = int(float(npshape[0])/2)
-            print y
-            img_patch = image[y - npshape[0] / 2:y + npshape[0] / 2, :, :]
-            mask_patch = mask[y - npshape[0] / 2:y + npshape[0] / 2, :]
-            roi_patch = roim[y - npshape[0] / 2:y + npshape[0] / 2, :]
+            print (y)
+            img_patch = image[int(y - npshape[0] // 2):int(y + npshape[0] // 2), :, :]
+            mask_patch = mask[int(y - npshape[0] // 2):int(y + npshape[0] // 2), :]
+            roi_patch = roim[int(y - npshape[0] // 2):int(y + npshape[0] // 2), :]
             # it = sample_patches_entropy_mask(image, mask, roimask=roim, pshape=npshape, npos=npos, nneg=nneg, pos=pos,
             #                                  neg=neg, patch_border=patch_border)
 
         else:
-            print "Error"
+            print ("Error")
             # it = sample_patches_retouch_mask(image, mask, pshape=npshape, npos=npos, nneg=nneg,
             #                                  pos=pos, neg=neg, patch_border=patch_border)
 
@@ -454,22 +455,22 @@ def load_oct_image(filepath, as_grey=False, dtype='uint8', no_alpha=True):
     """
     # TODO : think about z axis of the spectralasis images, they have different spacing than other two
     if filepath.endswith('.npy'):  # image as numpy array
-        print "reading numpy OCT not yet implemented..."
+        print ("reading numpy OCT not yet implemented...")
         # arr = np.load(filepath).astype(dtype)
         # arr = rgb2gray(arr) if as_grey else arr
     else:
         # img_num=0 due to
         # https://github.com/scikit-image/scikit-image/issues/2406
-        arr1 = np.expand_dims(sio.imread(filepath, as_grey=as_grey, img_num=0).astype(dtype), axis=-1)
+        arr1 = np.expand_dims(sio.imread(filepath, as_gray=as_grey, img_num=0).astype(dtype), axis=-1)
         slice_num = int(filepath[:-5].split('_')[-1])
         if slice_num == 0:
             arr0 = arr1
         else:
             s0_filepath = filepath[:-8] + str(slice_num - 1).zfill(3) + '.tiff'
-            arr0 = np.expand_dims(sio.imread(s0_filepath, as_grey=as_grey, img_num=0).astype(dtype), axis=-1)
+            arr0 = np.expand_dims(sio.imread(s0_filepath, as_gray=as_grey, img_num=0).astype(dtype), axis=-1)
         s2_filepath = filepath[:-8] + str(slice_num + 1).zfill(3) + '.tiff'
         if os.path.isfile(s2_filepath):
-            arr2 = np.expand_dims(sio.imread(s2_filepath, as_grey=as_grey, img_num=0).astype(dtype), axis=-1)
+            arr2 = np.expand_dims(sio.imread(s2_filepath, as_gray=as_grey, img_num=0).astype(dtype), axis=-1)
         else:
             arr2 = arr1
 

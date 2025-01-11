@@ -1,3 +1,9 @@
+import os
+
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import matplotlib as mpl
 
 mpl.use('Agg')
@@ -9,25 +15,21 @@ from nutsml import *
 import platform
 import numpy as np
 from custom_networks import retouch_dual_net
-import os
 from hyper_parameters import *
 import skimage.transform as skt
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
 if platform.system() == 'Linux':
-    DATA_ROOT = '/home/truwan/DATA/retouch/pre_processed/'
+    print("Not ready for Linux")
 else:
-    DATA_ROOT = '/Users/ruwant/DATA/retouch/pre_processed/'
+    DATA_ROOT = '../RETOUCHdata/pre_processed/'
 
 weight_file = './outputs/weights.h5'
 
 
 def train_model():
     assert os.path.isfile('./outputs/train_data.csv')
-    assert os.path.isfile('./outputs/test_data.csv')
-    print 'Using existing test train SPLIT'
+    assert os.path.isfile('./outputs/test_data_.csv')
+    print ('Using existing test train SPLIT')
     train_file = './outputs/train_data_.csv'
     data = ReadPandas(train_file, dropnan=True)
     train_data = data >> Collect()
@@ -69,7 +71,7 @@ def train_model():
     # setting up image ad mask readers
     imagepath = DATA_ROOT + 'oct_imgs/*'
     maskpath = DATA_ROOT + 'oct_masks/*'
-    roipath = DATA_ROOT + 'roi_masks/*'
+    roipath = DATA_ROOT + 'roi_masks_chull/*'
     img_reader = ReadOCT(0, imagepath)
     mask_reader = ReadImage(1, maskpath)
     roi_reader = ReadImage(5, roipath)
@@ -83,12 +85,12 @@ def train_model():
 
     # building image batches
     build_batch_train = (BuildBatch(BATCH_SIZE, prefetch=0)
-                         .by(0, 'image', 'float32', channelfirst=False)
-                         .by(1, 'one_hot', 'uint8', 4)
-                         .by(2, 'number', 'uint8')
-                         .by(3, 'number', 'uint8')
-                         .by(4, 'number', 'uint8'))
-
+                         .input(0, 'image', 'float32', channelfirst=False)
+                         .input(1, 'one_hot', 'uint8', 4)
+                         .input(2, 'number', 'uint8') 
+                         .input(3, 'number', 'uint8')
+                         .input(4, 'number', 'uint8'))
+    
     is_cirrus = lambda v: v[1] == 'Cirrus'
     is_topcon = lambda v: v[1] == 'Topcon'
     is_spectralis = lambda v: v[1] == 'Spectralis'
@@ -139,17 +141,17 @@ def train_model():
     remove_mean = lambda s: (s.astype(np.float32) - SLICE_MEAN) / SLICE_SD
 
     best_error = float("inf")
-    print 'Starting network training'
+    print ('Starting network training')
     error_hold = list()
     for e in range(0, EPOCH):
-        # print "Training Epoch", str(e)
-        train_error = train_data >> Stratify(1, mode='up') >> Shuffle(1000) >> Map(
+        print ("Training Epoch", str(e))
+        train_error = train_data >> CollectStratified(1, mode='up') >> Shuffle(1000) >> Map(
             rearange_cols) >> img_reader >> mask_reader >> roi_reader >> augment_1 >> augment_2 >> Shuffle(
             100) >> image_patcher >> MapCol(0, remove_mean) >> Shuffle(1000) >> FilterFalse(
             drop_patch) >> build_batch_train >> Filter(filter_batch_shape) >> Map(
             train_batch) >> log_cols_train >> Collect()
 
-        # print "Testing Epoch", str(e)
+        print ("Testing Epoch", str(e))
         val_error = val_data >> Map(rearange_cols) >> Shuffle(
             1000) >> img_reader >> mask_reader >> roi_reader >> image_patcher >> Shuffle(1000) >> MapCol(0,
                                                                                                          remove_mean) >> FilterFalse(
@@ -161,14 +163,14 @@ def train_model():
              np.std([v[0] for v in train_error]), np.std([v[0] for v in val_error])])
         val_error = np.mean([v[0] for v in val_error])
         train_error = np.mean([v[0] for v in train_error])
-        print 'epoch ', e, 'train_error = ', train_error, 'val_error = ', val_error,
+        print ('epoch ', e, 'train_error = ', train_error, 'val_error = ', val_error, end='')
         if val_error < best_error:
             # save weights
-            print '... saving weights ...'
+            print ('... saving weights ...')
             model.save_weights(weight_file)
             best_error = val_error
         else:
-            print "..."
+            print ("...")
         if e >= EPOCH - 1:
             model.save_weights('./outputs/final_weights.h5')
 
