@@ -11,7 +11,7 @@ __pycache__/
 *.tiff
 *.mhd
 *.png
-*.h5
+
 # Distribution / packaging
 .Python
 env/
