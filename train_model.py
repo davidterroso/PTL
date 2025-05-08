@@ -17,17 +17,20 @@ import numpy as np
 from custom_networks import retouch_dual_net
 from hyper_parameters import *
 import skimage.transform as skt
+import time
+
+fold_train = "0"
 
 if platform.system() == 'Linux':
     print("Not ready for Linux")
 else:
     DATA_ROOT = '../RETOUCHdata/pre_processed/'
 
-weight_file = './outputs/weights.h5'
+weight_file = f'./outputs/weights_{fold_train}.h5'
 
 
 def train_model():
-    assert os.path.isfile('./outputs/train_data.csv')
+    assert os.path.isfile(f'./outputs/competitive_fold_selection_{fold_train}.csv')
     assert os.path.isfile('./outputs/test_data_.csv')
     print ('Using existing test train SPLIT')
     train_file = './outputs/train_data_.csv'
@@ -145,6 +148,7 @@ def train_model():
     error_hold = list()
     for e in range(0, EPOCH):
         print ("Training Epoch", str(e))
+        epoch_start_time = time.time()
         train_error = train_data >> CollectStratified(1, mode='up') >> Shuffle(1000) >> Map(
             rearange_cols) >> img_reader >> mask_reader >> roi_reader >> augment_1 >> augment_2 >> Shuffle(
             100) >> image_patcher >> MapCol(0, remove_mean) >> Shuffle(1000) >> FilterFalse(
@@ -157,6 +161,10 @@ def train_model():
                                                                                                          remove_mean) >> FilterFalse(
             drop_patch) >> build_batch_train >> Filter(filter_batch_shape) >> Map(
             test_batch) >> log_cols_test >> Collect()
+
+        epoch_end_time = time.time()
+        epoch_duration = epoch_end_time - epoch_start_time
+        print(f"Epoch {e} completed in {epoch_duration:.2f} seconds")
 
         error_hold.append(
             [e, np.mean([v[0] for v in train_error]), np.mean([v[0] for v in val_error]),
@@ -172,7 +180,7 @@ def train_model():
         else:
             print ("...")
         if e >= EPOCH - 1:
-            model.save_weights('./outputs/final_weights.h5')
+            model.save_weights(f'./outputs/final_weights_{fold_train}.h5')
 
         if DRAW_ERRORS_EPOCH:
             fig = plt.figure()
